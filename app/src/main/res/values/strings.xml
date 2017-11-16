@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">AroundMe</string>
+    <string name="settings_label">Settings</string>
+    <string name="radio_default">2</string>
 </resources>

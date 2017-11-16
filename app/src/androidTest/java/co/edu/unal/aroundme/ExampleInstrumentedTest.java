@@ -1,4 +1,4 @@
-package aroundme.co.edu.unal.aroundme;
+package co.edu.unal.aroundme;
 
 import android.content.Context;
 import android.support.test.InstrumentationRegistry;

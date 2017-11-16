@@ -1,4 +1,4 @@
-package aroundme.co.edu.unal.aroundme;
+package co.edu.unal.aroundme;
 
 import org.junit.Test;
 
