@@ -2,4 +2,6 @@
     <string name="app_name">AroundMe</string>
     <string name="settings_label">Settings</string>
     <string name="radio_default">2</string>
+    <string name="default_info_title">Default Location</string>
+    <string name="default_info_snippet">No places found, because location permission is disabled.</string>
 </resources>
