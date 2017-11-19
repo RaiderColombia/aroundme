@@ -2,9 +2,11 @@ package co.edu.unal.aroundme;
 
 import android.annotation.SuppressLint;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.location.Location;
 import android.os.Bundle;
+import android.preference.PreferenceManager;
 import android.support.annotation.NonNull;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
@@ -22,11 +24,13 @@ import com.google.android.gms.location.places.GeoDataClient;
 import com.google.android.gms.location.places.PlaceDetectionClient;
 import com.google.android.gms.location.places.PlaceLikelihood;
 import com.google.android.gms.location.places.PlaceLikelihoodBufferResponse;
+import com.google.android.gms.location.places.PlaceReport;
 import com.google.android.gms.location.places.Places;
 import com.google.android.gms.maps.CameraUpdateFactory;
 import com.google.android.gms.maps.GoogleMap;
 import com.google.android.gms.maps.OnMapReadyCallback;
 import com.google.android.gms.maps.SupportMapFragment;
+import com.google.android.gms.maps.model.BitmapDescriptorFactory;
 import com.google.android.gms.maps.model.CameraPosition;
 import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.Marker;
@@ -60,6 +64,9 @@ public class MainActivity extends AppCompatActivity
     private static final String KEY_CAMERA_POSITION = "camera_position";
     private static final String KEY_LOCATION = "location";
 
+    private SharedPreferences mPrefs;
+    private String mRadius;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -86,6 +93,9 @@ public class MainActivity extends AppCompatActivity
         SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
                 .findFragmentById(R.id.map);
         mapFragment.getMapAsync(this);
+
+        mPrefs = PreferenceManager.getDefaultSharedPreferences(this);
+        mRadius = mPrefs.getString(SettingsFragment.RADIO_PREFERENCE_KEY, "0 KM");
 
     }
 
@@ -129,6 +139,13 @@ public class MainActivity extends AppCompatActivity
         }
     }
 
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (requestCode == RESULT_CANCELED) {
+            mRadius = mPrefs.getString(SettingsFragment.RADIO_PREFERENCE_KEY, "0 KM");
+        }
+    }
+
     /**
      * Manipulates the map when it's available.
      * This callback is triggered when the map is ready to be used.
@@ -163,7 +180,8 @@ public class MainActivity extends AppCompatActivity
         mMap.setOnMapLongClickListener(new GoogleMap.OnMapLongClickListener() {
             @Override
             public void onMapLongClick(LatLng point) {
-                buildMarker("User Tap", "This is snippet", point);
+                mMap.clear();
+                buildMarker("User Tap", "This is snippet", point, true);
             }
         });
 
@@ -271,15 +289,17 @@ public class MainActivity extends AppCompatActivity
                         @Override
                         public void onComplete(@NonNull Task<PlaceLikelihoodBufferResponse> task) {
                             if (task.isSuccessful() && task.getResult() != null) {
+                                float km = Float.parseFloat(mRadius.split(" ")[0]);
                                 PlaceLikelihoodBufferResponse likelyPlaces = task.getResult();
-
                                 for (PlaceLikelihood placeLikelihood : likelyPlaces) {
-                                    String snippet = (String) placeLikelihood.getPlace().getAddress();
-                                    buildMarker(
-                                            (String) placeLikelihood.getPlace().getName(),
-                                            snippet,
-                                            placeLikelihood.getPlace().getLatLng()
-                                    );
+                                    LatLng latLng = placeLikelihood.getPlace().getLatLng();
+                                    Location location = new Location(mLastKnownLocation);
+                                    location.setLongitude(latLng.longitude);
+                                    location.setLatitude(latLng.latitude);
+                                    if(mLastKnownLocation.distanceTo(location) <= (km * 1000)) {
+                                        String snippet = (String) placeLikelihood.getPlace().getAddress();
+                                        buildMarker((String) placeLikelihood.getPlace().getName(), snippet, latLng, false);
+                                    }
                                 }
 
                                 // Release the place likelihood buffer, to avoid memory leaks.
@@ -296,9 +316,8 @@ public class MainActivity extends AppCompatActivity
 
             // Add a default marker, because the user hasn't selected a place.
             buildMarker(
-                getString(R.string.default_info_title),
-                getString(R.string.default_info_snippet),
-                mDefaultLocation
+                getString(R.string.default_info_title), getString(R.string.default_info_snippet),
+                mDefaultLocation, false
             );
 
             // Prompt the user for permission.
@@ -328,11 +347,14 @@ public class MainActivity extends AppCompatActivity
         }
     }
 
-    private void buildMarker(String title, String snippet, LatLng point){
-        mMap.addMarker(new MarkerOptions()
-                .title(title)
-                .position(point)
-                .snippet(snippet)
-        );
+    private void buildMarker(String title, String snippet, LatLng point, boolean isTap){
+        MarkerOptions marker = new MarkerOptions()
+            .title(title)
+            .position(point)
+            .snippet(snippet);
+        if (isTap){
+            marker = marker.icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_BLUE));
+        }
+        mMap.addMarker(marker);
     }
 }
