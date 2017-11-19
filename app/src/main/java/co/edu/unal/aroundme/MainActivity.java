@@ -18,13 +18,18 @@ import android.view.MenuItem;
 import android.view.View;
 import android.widget.TextView;
 
+import com.android.volley.Request;
+import com.android.volley.RequestQueue;
+import com.android.volley.Response;
+import com.android.volley.VolleyError;
+import com.android.volley.toolbox.JsonObjectRequest;
+import com.android.volley.toolbox.Volley;
 import com.google.android.gms.location.FusedLocationProviderClient;
 import com.google.android.gms.location.LocationServices;
 import com.google.android.gms.location.places.GeoDataClient;
 import com.google.android.gms.location.places.PlaceDetectionClient;
 import com.google.android.gms.location.places.PlaceLikelihood;
 import com.google.android.gms.location.places.PlaceLikelihoodBufferResponse;
-import com.google.android.gms.location.places.PlaceReport;
 import com.google.android.gms.location.places.Places;
 import com.google.android.gms.maps.CameraUpdateFactory;
 import com.google.android.gms.maps.GoogleMap;
@@ -37,6 +42,10 @@ import com.google.android.gms.maps.model.Marker;
 import com.google.android.gms.maps.model.MarkerOptions;
 import com.google.android.gms.tasks.OnCompleteListener;
 import com.google.android.gms.tasks.Task;
+
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
 
 /**
  * An activity that displays a map showing the place at the device's current location.
@@ -66,6 +75,11 @@ public class MainActivity extends AppCompatActivity
 
     private SharedPreferences mPrefs;
     private String mRadius;
+    private float distance;
+
+    private RequestQueue mQueue;
+    private String placesURL;
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -96,6 +110,9 @@ public class MainActivity extends AppCompatActivity
 
         mPrefs = PreferenceManager.getDefaultSharedPreferences(this);
         mRadius = mPrefs.getString(SettingsFragment.RADIO_PREFERENCE_KEY, "0 KM");
+        distance = Float.parseFloat(mRadius.split(" ")[0]) * 1000;
+        mQueue = Volley.newRequestQueue(this);
+        placesURL = "https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=%s&radius=%s&key=%s";
 
     }
 
@@ -143,6 +160,7 @@ public class MainActivity extends AppCompatActivity
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         if (requestCode == RESULT_CANCELED) {
             mRadius = mPrefs.getString(SettingsFragment.RADIO_PREFERENCE_KEY, "0 KM");
+            distance = Float.parseFloat(mRadius.split(" ")[0]) * 1000;
         }
     }
 
@@ -151,7 +169,7 @@ public class MainActivity extends AppCompatActivity
      * This callback is triggered when the map is ready to be used.
      */
     @Override
-    public void onMapReady(GoogleMap map) {
+    public void onMapReady(final GoogleMap map) {
         mMap = map;
 
         mMap.setInfoWindowAdapter(new GoogleMap.InfoWindowAdapter() {
@@ -182,6 +200,29 @@ public class MainActivity extends AppCompatActivity
             public void onMapLongClick(LatLng point) {
                 mMap.clear();
                 buildMarker("User Tap", "This is snippet", point, true);
+                @SuppressLint("DefaultLocale") String latLong = String.format("%f,%f", point.latitude, point.longitude);
+                String endPoint = String.format(placesURL,latLong, String.valueOf(distance), BuildConfig.API_KEY);
+                Location locationSelected = new Location(mLastKnownLocation);
+                locationSelected.setLatitude(point.latitude);
+                locationSelected.setLongitude(point.longitude);
+                showPlacesNearby(locationSelected, endPoint);
+            }
+        });
+
+        mMap.setOnMapClickListener(new GoogleMap.OnMapClickListener() {
+            @Override
+            public void onMapClick(LatLng latLng) {
+                mMap.clear();
+            }
+        });
+
+        mMap.setOnMyLocationButtonClickListener(new GoogleMap.OnMyLocationButtonClickListener() {
+            @Override
+            public boolean onMyLocationButtonClick() {
+                mMap.clear();
+                updateLocationUI();
+                getDeviceLocation();
+                return true;
             }
         });
 
@@ -194,6 +235,41 @@ public class MainActivity extends AppCompatActivity
 
         // Get the current location of the device and set the position of the map.
         getDeviceLocation();
+    }
+
+    private void showPlacesNearby(final Location point, String endPoint){
+
+        JsonObjectRequest request = new JsonObjectRequest(Request.Method.GET, endPoint, null,
+            new Response.Listener<JSONObject>() {
+                @Override
+                public void onResponse(JSONObject response) {
+                    try {
+                        JSONArray results = response.getJSONArray("results");
+                        JSONObject place;
+                        JSONObject locJSON;
+                        Location location = new Location(point);
+                        for (int i = 0; i < results.length(); i++) {
+                            place = results.getJSONObject(i);
+                            locJSON = place.getJSONObject("geometry").getJSONObject("location");
+                            location.setLatitude(locJSON.getDouble("lat"));
+                            location.setLongitude(locJSON.getDouble("lng"));
+                            if(point.distanceTo(location) <= distance) {
+                                buildMarker(place.getString("name"), place.getString("vicinity"), new LatLng(location.getLatitude(), location.getLongitude()), false);
+                            }
+                        }
+                    } catch (JSONException e) {e.printStackTrace();}
+
+                    Log.d(TAG, response.toString());
+                }
+            },
+            new Response.ErrorListener() {
+                @Override
+                public void onErrorResponse(VolleyError error) {
+
+                }
+            }
+        );
+        mQueue.add(request);
     }
 
     /**
@@ -289,14 +365,13 @@ public class MainActivity extends AppCompatActivity
                         @Override
                         public void onComplete(@NonNull Task<PlaceLikelihoodBufferResponse> task) {
                             if (task.isSuccessful() && task.getResult() != null) {
-                                float km = Float.parseFloat(mRadius.split(" ")[0]);
                                 PlaceLikelihoodBufferResponse likelyPlaces = task.getResult();
                                 for (PlaceLikelihood placeLikelihood : likelyPlaces) {
                                     LatLng latLng = placeLikelihood.getPlace().getLatLng();
                                     Location location = new Location(mLastKnownLocation);
                                     location.setLongitude(latLng.longitude);
                                     location.setLatitude(latLng.latitude);
-                                    if(mLastKnownLocation.distanceTo(location) <= (km * 1000)) {
+                                    if(mLastKnownLocation.distanceTo(location) <= distance) {
                                         String snippet = (String) placeLikelihood.getPlace().getAddress();
                                         buildMarker((String) placeLikelihood.getPlace().getName(), snippet, latLng, false);
                                     }
